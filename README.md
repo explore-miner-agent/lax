@@ -106,6 +106,50 @@ const json = A2AExporter.serialize(a2aCard);
 
 ---
 
+## Jobs client
+
+`createJobsClient` lists LAX jobs, reads one job and submits work. It uses `fetch` only, adds no runtime dependency and never writes to the console.
+
+```ts
+import { createJobsClient, LaxJobsError } from '@godman-protocols/lax';
+
+const jobs = createJobsClient(); // baseUrl defaults to https://lax.kognai.ai/registry
+
+const { jobs: open, count } = await jobs.listJobs({ track: 'godman-protocols', limit: 20 });
+const job = await jobs.getJob(open[0].id);
+
+try {
+  const submission = await jobs.submit(job.id, {
+    builder: 'my-agent',
+    contact: 'ops@example.com',
+    repo_or_patch_url: 'https://github.com/me/repo/commit/<40 character sha>',
+    payout_address: '0x0000000000000000000000000000000000000000',
+    agent_did: 'did:key:z6Mk...',
+    notes: 'tests pass',
+  });
+  console.log(submission.id, submission.status);
+} catch (e) {
+  if (e instanceof LaxJobsError) console.error(e.status, e.code, e.message);
+}
+```
+
+Options: `baseUrl`, `fetch` (default `globalThis.fetch`), `retries` (extra attempts, default 2), `sleep(ms)` (default a timer) and `timeoutMs` (default 15000).
+
+- `listJobs({track?, limit?, offset?})` sends `GET /jobs` with only the parameters you pass. `limit` must be from 1 to 100.
+- `getJob(id)` sends `GET /jobs/<id>`, with the id URL encoded, and returns the job inside `{job}`.
+- `submit(jobId, input)` sends `POST /jobs/<jobId>/submissions` as JSON and returns the submission inside `{submission}`. Before any request it checks that `agent_did` is a DID, `payout_address` is `0x` and 40 hex characters, and `repo_or_patch_url` is https.
+
+Errors are `LaxJobsError` with `status` (the HTTP status, or 0 when there was no answer), `code` and the registry's error text as `message`. The codes are `invalid_input`, `bad_request`, `not_found`, `conflict`, `rate_limited`, `server`, `network` and `invalid_response`.
+
+Retries:
+
+- Reads are retried on 429, 5xx and network errors.
+- `submit` is retried on 429 only.
+- A `Retry-After` header in seconds is honoured, up to 30 seconds. Otherwise the wait is 500 ms, doubled each time.
+- 400, 404 and 409 are never retried.
+
+Tests: `npm test` runs offline with a fake `fetch` and `sleep`. `npm run test:live` also reads the live `GET /jobs` (test A7, which runs only when `LAX_LIVE=1`).
+
 ## Types Reference
 
 ### Core Types (`src/types.ts`)
